@@ -1,3 +1,8 @@
+/*
+*
+* Bremer Jonathan
+*
+*/
 package com.ibm.cio
 
 import org.apache.spark.SparkConf
@@ -21,7 +26,6 @@ object JumbleSolver {
   val findProbableAnswerUDF  = udf(findProbableAnswer _)
 
   def main(args: Array[String]): Unit = {
-
     val conf = new SparkConf().setAppName("jumblesolver")//.setMaster("local[*]")
     val sparkSession = SparkSession.builder().config(conf).getOrCreate()
     val puzzle = sparkSession.read
@@ -29,16 +33,16 @@ object JumbleSolver {
       .option("ignoreTrailingWhiteSpace","true")
       .option("escape", "\"")
       .option("header", "true")
-      //.csv("input/*.csv")
-    .csv(args(0))
+      //.csv("input/puzzle1.csv")
+      .csv(args(0))
 
     val jumbleTuples       = puzzle.withColumn("jumble_tuples", createJumbleTuplesUDF(puzzle("jumbles")))
     val unscrambledJumbles = jumbleTuples.withColumn("unscrambled_jumbles", unscrambleJumblesUDF(jumbleTuples("jumble_tuples"))).drop("jumble_tuples")
     val answerJumbles      = unscrambledJumbles.withColumn("answer_jumbles", createAnswerJumbleUDF(unscrambledJumbles("unscrambled_jumbles")))
     val possibleAnswers    = answerJumbles.withColumn("possible_answers", findPossibleAnswersUDF(answerJumbles("answer_words_sizes"), answerJumbles("answer_jumbles")))
-    val probableAnswer     = possibleAnswers.withColumn("probable_answer", findProbableAnswerUDF(possibleAnswers("possible_answers")))
-    probableAnswer.rdd.saveAsTextFile("output")
-
+    val probableAnswer     = possibleAnswers.withColumn("probable_answer", findProbableAnswerUDF(possibleAnswers("possible_answers"))).select("jumbles", "probable_answer")
+    probableAnswer.write.option("header","true").csv(args(1))
+    //probableAnswer.show(false)
   }
 
   // Converts a string of jumbles in the format "abc(1,2),de(3,4)" to an array of tuples [(abc,[1 ,2, 3]), (de,[3,4])]
@@ -83,7 +87,8 @@ object JumbleSolver {
   def findPossibleAnswers(answerWordsSizesString: String, answerJumbles: Seq[String]): Array[(String, Double)] = {
     val answerWordsSizes: Array[Int] = answerWordsSizesString.split("\\s*,\\s*").map(_.toInt)
     val answerWords = new Array[String](answerWordsSizes.length)
-    val adjustedZeroFrequencyScore = LEAST_FREQUENCY_SCORE * answerWordsSizes.length + 1
+    // Making word combos with any zero frequency score (unscored) words have more total frequency than same number scored word combos.
+    val zeroFrequencyScoreOffset = LEAST_FREQUENCY_SCORE * answerWordsSizes.length + 1
     var answerWordsWithMinTotalScore = new Array[ListBuffer[(String, Double)]](answerJumbles.length)
     for ((answerJumble, index) <- answerJumbles.zipWithIndex) {
       answerWordsWithMinTotalScore(index) = ListBuffer[(String, Double)]()
@@ -96,7 +101,7 @@ object JumbleSolver {
         }
         if (contains(wordFrequencyMap, answerWords)) {
           var answerWordsAndTotalScore = answerWords.map(x => (x, wordFrequencyMap.get(x).get))
-            .map(x => (x._1, if (x._2 == 0) (x._2 + adjustedZeroFrequencyScore) else x._2))
+            .map(x => (x._1, if (x._2 == 0) (x._2 + zeroFrequencyScoreOffset) else x._2))
             .reduce[(String, Double)]((x1, x2) => (x1._1 + " " + x2._1, x1._2 + x2._2))
           if (answerWordsWithMinTotalScore(index).isEmpty || answerWordsAndTotalScore._2 == answerWordsWithMinTotalScore(index).head._2) {
             answerWordsWithMinTotalScore(index) += answerWordsAndTotalScore
@@ -111,6 +116,7 @@ object JumbleSolver {
     answerWordsWithMinTotalScore.flatten
   }
 
+  // Finds possible answer word combos with the least total frequency
   def findProbableAnswer(possibleAnswers: Seq[Row]): String = {
     possibleAnswers
       .map(r => (r.getString(0), r.getDouble(1)))
