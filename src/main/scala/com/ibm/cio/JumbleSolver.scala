@@ -37,9 +37,9 @@ object JumbleSolver {
     val unscrambledJumbles = jumbleTuples.withColumn("unscrambled_jumbles", unscrambleJumblesUDF(jumbleTuples("jumble_tuples"))).drop("jumble_tuples")
     val answerJumbles      = unscrambledJumbles.withColumn("answer_jumbles", createAnswerJumbleUDF(unscrambledJumbles("unscrambled_jumbles")))
     val possibleAnswers    = answerJumbles.withColumn("possible_answers", findPossibleAnswersUDF(answerJumbles("answer_words_sizes"), answerJumbles("answer_jumbles")))
-    val probableAnswer     = possibleAnswers.withColumn("probable_answer", findProbableAnswerUDF(possibleAnswers("possible_answers"))).select("jumbles", "unscrambled_jumbles", "answer_jumbles", "probable_answer")
+    val probableAnswer     = possibleAnswers.withColumn("probable_answer", findProbableAnswerUDF(possibleAnswers("possible_answers"))).select("jumbles", "probable_answer")
     probableAnswer.write.option("header","true").csv(args(1))
-    //probableAnswer.show(false)
+    //possibleAnswers.show(false)
   }
 
   // Converts a string of jumbles in the format "abc(1,2),de(3,4)" to an array of tuples [(abc,[1 ,2, 3]), (de,[3,4])]
@@ -55,7 +55,7 @@ object JumbleSolver {
 
   def createAnswerJumble(unscrambledJumbleRows: Seq[Row]): Seq[String] = {
     var jumble: String = ""
-    val unscrambledJumbles: Seq[((Seq[String], Int), Seq[Int])] = unscrambledJumbleRows.map(r1 => (  (r1.getAs[Row](0).getAs[Seq[String]](0).map(r2 => charsAt(r2, r1.getAs[Seq[Int]](1))), r1.getAs[Row](0).getInt(1)) ,   r1.getAs[Seq[Int]](1)  ))
+    val unscrambledJumbles: Seq[((Seq[String], Int), Seq[Int])] = unscrambledJumbleRows.map(r1 => ((r1.getAs[Row](0).getAs[Seq[String]](0).map(r2 => charsAt(r2, r1.getAs[Seq[Int]](1))), r1.getAs[Row](0).getInt(1)), r1.getAs[Seq[Int]](1)))
     var answerJumble: Seq[String] = unscrambledJumbles(0)._1._1//.to[ListBuffer]
     for (i <- 1 until unscrambledJumbles.length) {
       answerJumble = answerJumble cross unscrambledJumbles(i)._1._1//.to[ListBuffer]
@@ -103,7 +103,7 @@ object JumbleSolver {
     result
   }
 
-  // Finds possible answer word combos with the least total frequency
+  // Finds possible answer words with the least total frequency
   def findProbableAnswer(possibleAnswers: Seq[Row]): String = {
     var answer: (String, Int) = null
     possibleAnswers
